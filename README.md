@@ -10,32 +10,78 @@ An MCP server + Chrome extension that lets AI agents control your actual browser
 
 **Use case:** Your AI agent needs to read a Looker Studio dashboard, check Shopify admin, or browse a supplier portal — and you're already logged in.
 
-## Setup
+## Quick Start
+
+### Option 1: Double-click (easiest)
+
+Double-click `Firtal Browser.command` in the repo folder. First time it runs setup automatically. After that it just launches agent Chrome.
+
+You can drag the file to your desktop or Dock for quick access.
+
+### Option 2: Terminal
 
 ```bash
 cd server && npm install
 node cli.js setup
 ```
 
-That's it. The setup command:
-1. Builds the Chrome extension
-2. Creates a dedicated agent Chrome profile
-3. Opens agent Chrome with the extension installed
-4. Prints the MCP config to copy-paste into your AI client
+Both options do the same thing:
+1. Build the Chrome extension
+2. Create a dedicated agent Chrome profile
+3. Open agent Chrome with the extension installed
+4. Print the MCP config to copy-paste into your AI client
 
-Log into your services (Looker Studio, Shopify, GA4, etc.) in the agent Chrome window. Sessions are saved.
+**Log into your services** (Looker Studio, Shopify, GA4, etc.) in the agent Chrome window that opens. Sessions are saved automatically.
 
-### Next time
+## After Setup
+
+### Relaunch agent Chrome
+
+Double-click `Firtal Browser.command` again, or:
 
 ```bash
-node cli.js launch    # reopen agent Chrome with saved sessions
+node server/cli.js launch
+```
+
+Your sessions are remembered — no need to log in again.
+
+### Add as MCP tool
+
+The setup command prints the config for your AI client. Here it is again:
+
+**Claude Code:**
+```bash
+claude mcp add firtal-browser -- node /path/to/firtal-browser/server/cli.js
+```
+
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "firtal-browser": {
+      "command": "node",
+      "args": ["/path/to/firtal-browser/server/cli.js"]
+    }
+  }
+}
+```
+
+**VS Code / Cursor** (`.vscode/settings.json`):
+```json
+{
+  "mcp.servers": {
+    "firtal-browser": {
+      "command": "node",
+      "args": ["/path/to/firtal-browser/server/cli.js"]
+    }
+  }
+}
 ```
 
 ### Use it
 
-1. Start agent Chrome: `node cli.js launch`
-2. Click the Firtal Browser extension icon — it should show "Connected"
-3. Ask your AI to browse:
+1. Agent Chrome is running (extension icon shows "Connected")
+2. Ask your AI to browse:
 
 ```
 "Go to our Looker Studio dashboard and tell me what charts are on this page"
@@ -43,52 +89,66 @@ node cli.js launch    # reopen agent Chrome with saved sessions
 "Take a screenshot of this supplier portal"
 ```
 
+## CLI Reference
+
+| Command | What it does |
+|---------|-------------|
+| `node cli.js setup` | First-time setup: build, create profile, launch Chrome |
+| `node cli.js launch` | Relaunch agent Chrome with saved sessions |
+| `node cli.js serve` | Start MCP server (default, used by AI clients) |
+| `node cli.js serve --debug` | Start MCP server with verbose logging |
+| `node cli.js serve --port 8080` | Use custom WebSocket port (default: 5555) |
+
 ## Available Tools
 
 ### Connection
-- `enable` — Activate browser automation (required first step)
-- `disable` — Deactivate browser automation
-- `status` — Check connection status
+| Tool | Description |
+|------|-------------|
+| `enable` | Activate browser automation (required first step) |
+| `disable` | Deactivate browser automation |
+| `status` | Check connection status |
 
-### Tabs
-- `browser_tabs` — List, create, attach to, or close tabs
-
-### Navigation
-- `browser_navigate` — Navigate to a URL
-- `browser_navigate_back` — Go back in history
+### Tabs & Navigation
+| Tool | Description |
+|------|-------------|
+| `browser_tabs` | List, create, attach to, or close tabs |
+| `browser_navigate` | Navigate to a URL |
+| `browser_navigate_back` | Go back in history |
 
 ### Reading Pages
-- `browser_snapshot` — Get accessible page content (best for reading pages)
-- `browser_take_screenshot` — Capture visual screenshot
-- `browser_extract_content` — Extract page content as markdown
-- `browser_console_messages` — Get browser console logs
+| Tool | Description |
+|------|-------------|
+| `browser_snapshot` | Get accessible page content (best for reading pages) |
+| `browser_take_screenshot` | Capture visual screenshot |
+| `browser_extract_content` | Extract page content as markdown |
+| `browser_console_messages` | Get browser console logs |
+| `browser_network_requests` | Monitor, inspect, filter, and replay network requests |
 
 ### Interaction
-- `browser_interact` — Perform multiple actions in sequence (click, type, hover, wait)
-- `browser_click` — Click on elements
-- `browser_type` — Type text into inputs
-- `browser_fill_form` — Fill multiple form fields at once
-- `browser_select_option` — Select dropdown options
-- `browser_press_key` — Press keyboard keys
-- `browser_drag` — Drag and drop elements
-- `browser_hover` — Hover over elements
+| Tool | Description |
+|------|-------------|
+| `browser_interact` | Perform multiple actions in sequence (click, type, hover, wait) |
+| `browser_click` | Click on elements |
+| `browser_type` | Type text into inputs |
+| `browser_fill_form` | Fill multiple form fields at once |
+| `browser_select_option` | Select dropdown options |
+| `browser_press_key` | Press keyboard keys |
+| `browser_drag` | Drag and drop elements |
+| `browser_hover` | Hover over elements |
 
 ### Advanced
-- `browser_evaluate` — Execute JavaScript in page context
-- `browser_handle_dialog` — Handle alert/confirm/prompt dialogs
-- `browser_file_upload` — Upload files
-- `browser_window` — Resize, minimize, maximize browser window
-- `browser_pdf_save` — Save page as PDF
-- `browser_performance_metrics` — Get performance metrics
-- `browser_verify_text_visible` — Verify text is present
-- `browser_verify_element_visible` — Verify element exists
-
-### Network
-- `browser_network_requests` — Monitor, inspect, filter, and replay network requests
-
-### Extensions
-- `browser_list_extensions` — List installed browser extensions
-- `browser_reload_extensions` — Reload unpacked extensions
+| Tool | Description |
+|------|-------------|
+| `browser_evaluate` | Execute JavaScript in page context |
+| `browser_handle_dialog` | Handle alert/confirm/prompt dialogs |
+| `browser_file_upload` | Upload files |
+| `browser_window` | Resize, minimize, maximize browser window |
+| `browser_pdf_save` | Save page as PDF |
+| `browser_performance_metrics` | Get performance metrics |
+| `browser_verify_text_visible` | Verify text is present |
+| `browser_verify_element_visible` | Verify element exists |
+| `browser_list_extensions` | List installed browser extensions |
+| `browser_reload_extensions` | Reload unpacked extensions |
 
 ## Agent Chrome Profile
 
@@ -97,38 +157,23 @@ The agent runs in a dedicated Chrome profile at `~/.firtal-browser/profiles/`. T
 - Your normal Chrome is untouched
 - The agent has its own window
 - Sessions persist between runs (log in once)
-- You can have multiple profiles: `./scripts/setup-profile.sh my-profile-name`
-
-To relaunch the agent browser later:
-```bash
-./scripts/setup-profile.sh  # uses default "firtal-agent" profile
-```
-
-## Configuration
-
-```bash
-# Custom WebSocket port (default: 5555)
-node server/cli.js --port 8080
-
-# Debug mode
-node server/cli.js --debug
-```
+- Named profiles: `node cli.js setup --profile my-other-profile`
 
 ## How it works
 
 ```
 AI Assistant (Claude Code, Cursor, etc.)
-    │
-    │ MCP Protocol (stdio)
-    ↓
-Firtal Browser MCP Server (this repo, Node.js)
-    │
-    │ WebSocket (localhost:5555)
-    ↓
+    |
+    | MCP Protocol (stdio)
+    v
+Firtal Browser MCP Server (Node.js)
+    |
+    | WebSocket (localhost:5555)
+    v
 Firtal Browser Extension (in agent Chrome)
-    │
-    │ Browser Extension APIs
-    ↓
+    |
+    | Browser Extension APIs
+    v
 Your browser (real profile, real sessions)
 ```
 
@@ -144,7 +189,7 @@ Your browser (real profile, real sessions)
 ```bash
 lsof -ti:5555 | xargs kill -9
 # or use a different port:
-node server/cli.js --port 8080
+node server/cli.js serve --port 8080
 ```
 
 **Session expired:**
