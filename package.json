@@ -1,15 +1,15 @@
 {
-  "name": "blueprint-mcp-monorepo",
+  "name": "firtal-browser",
   "version": "1.9.21",
   "private": true,
-  "description": "Blueprint MCP monorepo - MCP server and browser extensions",
+  "description": "Firtal Browser - Browser MCP for Firtal AI Agents",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/railsblueprint/blueprint-mcp.git"
+    "url": "git+https://github.com/firtal-group/firtal-browser.git"
   },
-  "homepage": "https://blueprint-mcp.railsblueprint.com",
+  "homepage": "https://github.com/firtal-group/firtal-browser",
   "author": {
-    "name": "Rails Blueprint"
+    "name": "Firtal"
   },
   "license": "Apache-2.0",
   "scripts": {

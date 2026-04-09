@@ -1,18 +1,18 @@
 {
-  "name": "@blueprint/mcp-extension",
+  "name": "@firtal/browser-extension",
   "version": "1.9.21",
-  "description": "Blueprint MCP for Chrome",
+  "description": "Firtal Browser",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/railsblueprint/blueprint-mcp.git"
+    "url": "git+https://github.com/firtal-group/firtal-browser.git"
   },
-  "homepage": "https://blueprint-mcp.railsblueprint.com",
+  "homepage": "https://github.com/firtal-group/firtal-browser",
   "engines": {
     "node": ">=18"
   },
   "author": {
-    "name": "Rails Blueprint"
+    "name": "Firtal"
   },
   "license": "Apache-2.0",
   "scripts": {

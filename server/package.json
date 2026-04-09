@@ -1,22 +1,22 @@
 {
-  "name": "@railsblueprint/blueprint-mcp",
+  "name": "@firtal/firtal-browser",
   "version": "1.9.21",
   "description": "MCP server for browser automation across Chrome, Firefox, and Safari using real browser profiles",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/railsblueprint/blueprint-mcp.git"
+    "url": "git+https://github.com/firtal-group/firtal-browser.git"
   },
-  "homepage": "https://blueprint-mcp.railsblueprint.com",
+  "homepage": "https://github.com/firtal-group/firtal-browser",
   "engines": {
     "node": ">=18"
   },
   "author": {
-    "name": "Rails Blueprint"
+    "name": "Firtal"
   },
   "license": "Apache-2.0",
   "scripts": {
     "postinstall": "node scripts/post-install.js",
-    "docker-build": "docker build --no-cache -t blueprint-mcp-dev:latest ..",
+    "docker-build": "docker build --no-cache -t firtal-browser-dev:latest ..",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
@@ -32,7 +32,7 @@
     "ws": "^8.18.3"
   },
   "bin": {
-    "blueprint-mcp": "cli.js"
+    "firtal-browser": "cli.js"
   },
   "files": [
     "cli.js",

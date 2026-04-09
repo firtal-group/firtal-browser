@@ -17,15 +17,15 @@
   ],
   "host_permissions": [
     "<all_urls>",
-    "*://*.railsblueprint.com/*",
-    "*://*.blueprintmcp.com/*"
+    "*://*.firtal.com/*",
+    "*://*.firtal.com/*"
   ],
   "background": {
     "service_worker": "src/background-module.js",
     "type": "module"
   },
   "action": {
-    "default_title": "Blueprint MCP for Chrome",
+    "default_title": "Firtal Browser",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
