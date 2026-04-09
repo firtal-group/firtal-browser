@@ -221,39 +221,183 @@ async function main(options) {
   });
 }
 
+// Setup command: one-command setup for Firtal Browser
+async function setupFirtalBrowser(options) {
+  const fs = require('fs');
+  const path = require('path');
+  const { execSync } = require('child_process');
+
+  const profileName = options.profile || 'firtal-agent';
+  const profileDir = path.join(require('os').homedir(), '.firtal-browser', 'profiles', profileName);
+  const repoRoot = path.resolve(__dirname, '..');
+  const distDir = path.join(repoRoot, 'dist', 'chrome');
+  const cliPath = path.resolve(__dirname, 'cli.js');
+
+  console.log('\n  Firtal Browser Setup\n');
+
+  // Step 1: Build extension
+  console.log('  [1/4] Building Chrome extension...');
+  try {
+    execSync('node ' + path.join(repoRoot, 'extensions', 'build-chrome.js'), {
+      cwd: repoRoot,
+      stdio: 'pipe'
+    });
+    console.log('        Done\n');
+  } catch (e) {
+    console.error('        Build failed:', e.message);
+    process.exit(1);
+  }
+
+  // Step 2: Create profile directory
+  console.log('  [2/4] Creating agent Chrome profile...');
+  fs.mkdirSync(profileDir, { recursive: true });
+  console.log('        ' + profileDir + '\n');
+
+  // Step 3: Detect Chrome and launch
+  console.log('  [3/4] Launching agent Chrome...');
+  let chromeBin;
+  if (process.platform === 'darwin') {
+    chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  } else if (process.platform === 'linux') {
+    try {
+      chromeBin = execSync('which google-chrome || which chromium-browser || which chromium', { encoding: 'utf8' }).trim();
+    } catch {
+      console.error('        Chrome not found. Install Google Chrome first.');
+      process.exit(1);
+    }
+  } else {
+    chromeBin = 'chrome';
+  }
+
+  const chromeArgs = [
+    `--user-data-dir=${profileDir}`,
+    `--load-extension=${distDir}`,
+    '--no-first-run',
+    '--no-default-browser-check'
+  ];
+
+  const chrome = spawn(chromeBin, chromeArgs, {
+    detached: true,
+    stdio: 'ignore'
+  });
+  chrome.unref();
+  console.log('        Agent Chrome is open — log into your services now\n');
+
+  // Step 4: Print MCP config
+  console.log('  [4/4] Add to your MCP client:\n');
+  console.log('  Claude Code:');
+  console.log(`    claude mcp add firtal-browser -- node ${cliPath}\n`);
+  console.log('  Claude Desktop (claude_desktop_config.json):');
+  console.log(`    {
+      "mcpServers": {
+        "firtal-browser": {
+          "command": "node",
+          "args": ["${cliPath}"]
+        }
+      }
+    }\n`);
+  console.log('  VS Code / Cursor (.vscode/settings.json):');
+  console.log(`    {
+      "mcp.servers": {
+        "firtal-browser": {
+          "command": "node",
+          "args": ["${cliPath}"]
+        }
+      }
+    }\n`);
+
+  console.log('  Next time, just run:');
+  console.log(`    node ${cliPath} launch\n`);
+}
+
+// Launch command: relaunch agent Chrome with existing profile
+function launchFirtalBrowser(options) {
+  const path = require('path');
+  const fs = require('fs');
+
+  const profileName = options.profile || 'firtal-agent';
+  const profileDir = path.join(require('os').homedir(), '.firtal-browser', 'profiles', profileName);
+  const repoRoot = path.resolve(__dirname, '..');
+  const distDir = path.join(repoRoot, 'dist', 'chrome');
+
+  if (!fs.existsSync(profileDir)) {
+    console.error(`Profile "${profileName}" not found. Run "setup" first.`);
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(distDir)) {
+    console.error('Extension not built. Run "setup" first.');
+    process.exit(1);
+  }
+
+  let chromeBin;
+  if (process.platform === 'darwin') {
+    chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  } else {
+    try {
+      const { execSync } = require('child_process');
+      chromeBin = execSync('which google-chrome || which chromium-browser || which chromium', { encoding: 'utf8' }).trim();
+    } catch {
+      chromeBin = 'chrome';
+    }
+  }
+
+  const chrome = spawn(chromeBin, [
+    `--user-data-dir=${profileDir}`,
+    `--load-extension=${distDir}`,
+    '--no-first-run',
+    '--no-default-browser-check'
+  ], { detached: true, stdio: 'ignore' });
+  chrome.unref();
+
+  console.log(`Agent Chrome launched (profile: ${profileName})`);
+}
+
 // Set up command
 const program = new Command();
 
 program
   .version('Version ' + packageJSON.version)
-  .name('Blueprint MCP for Browser')
-  .description('MCP server for browser automation (Chrome, Firefox, Edge, Opera) using the Blueprint MCP extension')
-  .option('--debug', 'Enable debug mode (shows reload/extension tools and verbose logging)')
-  .option('--log-file <path>', 'Custom log file path (default: logs/mcp-debug.log)')
+  .name('firtal-browser')
+  .description('Firtal Browser — MCP server for browser automation using your real Chrome profile');
+
+// Default command: start MCP server
+program
+  .command('serve', { isDefault: true })
+  .description('Start MCP server (default)')
+  .option('--debug', 'Enable debug mode')
+  .option('--log-file <path>', 'Custom log file path')
   .option('--port <number>', 'WebSocket server port (default: 5555)', parseInt)
-  .option('--child', 'Internal flag: indicates this is a child process spawned by wrapper')
-  .option('--script-mode', 'Enable scripting mode (JSON-RPC over stdio for automation scripts)')
+  .option('--child', 'Internal flag: child process spawned by wrapper')
+  .option('--script-mode', 'Enable scripting mode')
   .action(async (options) => {
-    // Script mode: JSON-RPC over stdio for automation scripts
     if (options.scriptMode) {
       const config = resolveConfig(options);
       await startScriptMode(config);
       return;
     }
-
-    // If --debug and NOT --child: run as wrapper (parent process)
     if (options.debug && !options.child) {
       runAsWrapper();
       return;
     }
-
-    // Otherwise: run as normal MCP server (either child or non-debug mode)
     if (options.child) {
-      // Child process inherits debug mode from parent
       options.debug = true;
     }
-
     await main(options);
   });
+
+// Setup command
+program
+  .command('setup')
+  .description('One-command setup: build extension, create Chrome profile, launch browser')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .action(setupFirtalBrowser);
+
+// Launch command
+program
+  .command('launch')
+  .description('Launch agent Chrome with existing profile')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .action(launchFirtalBrowser);
 
 program.parse(process.argv);

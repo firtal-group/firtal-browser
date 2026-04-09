@@ -28,7 +28,12 @@ Use it when merging upstream updates to identify and resolve conflicts.
   # Then manually update package.json files
   ```
 
-### 2. New files (no upstream conflicts)
+### 2. CLI: setup + launch commands
+- **Files:** server/cli.js (MODIFIED)
+- **What:** Added `setup` and `launch` subcommands. Default `serve` command preserved. Changed program name and description.
+- **Merge strategy:** The additions are at the end of the file (new functions + command definitions). The original action handler is preserved inside `serve` subcommand. On upstream merge, re-apply the subcommand structure if cli.js conflicts.
+
+### 3. New files (no upstream conflicts)
 
 - **Files added:**
   - `FIRTAL-CHANGES.md` — this file

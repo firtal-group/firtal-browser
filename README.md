@@ -10,72 +10,30 @@ An MCP server + Chrome extension that lets AI agents control your actual browser
 
 **Use case:** Your AI agent needs to read a Looker Studio dashboard, check Shopify admin, or browse a supplier portal — and you're already logged in.
 
-## Setup (5 minutes)
-
-### 1. Install the MCP server
+## Setup
 
 ```bash
-# From this repo
 cd server && npm install
+node cli.js setup
 ```
 
-### 2. Set up agent Chrome profile
+That's it. The setup command:
+1. Builds the Chrome extension
+2. Creates a dedicated agent Chrome profile
+3. Opens agent Chrome with the extension installed
+4. Prints the MCP config to copy-paste into your AI client
 
-The agent gets its own Chrome profile so it doesn't interfere with your normal browser:
+Log into your services (Looker Studio, Shopify, GA4, etc.) in the agent Chrome window. Sessions are saved.
+
+### Next time
 
 ```bash
-./scripts/setup-profile.sh
+node cli.js launch    # reopen agent Chrome with saved sessions
 ```
 
-This opens a new Chrome window with a fresh profile. Log into your services (Looker Studio, Shopify, GA4, etc.) — the profile remembers your sessions.
+### Use it
 
-### 3. Build and load the extension
-
-```bash
-# Build the Chrome extension
-npm run build:chrome
-
-# In the agent Chrome window:
-# 1. Go to chrome://extensions/
-# 2. Enable "Developer mode"
-# 3. Click "Load unpacked"
-# 4. Select the dist/chrome folder
-```
-
-### 4. Add as MCP tool
-
-**Claude Code:**
-```bash
-claude mcp add firtal-browser -- node /path/to/firtal-browser/server/cli.js
-```
-
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-```json
-{
-  "mcpServers": {
-    "firtal-browser": {
-      "command": "node",
-      "args": ["/path/to/firtal-browser/server/cli.js"]
-    }
-  }
-}
-```
-
-**VS Code / Cursor** (`.vscode/settings.json`):
-```json
-{
-  "mcp.servers": {
-    "firtal-browser": {
-      "command": "node",
-      "args": ["/path/to/firtal-browser/server/cli.js"]
-    }
-  }
-}
-```
-
-### 5. Use it
-
-1. Start the agent Chrome profile: `./scripts/setup-profile.sh`
+1. Start agent Chrome: `node cli.js launch`
 2. Click the Firtal Browser extension icon — it should show "Connected"
 3. Ask your AI to browse:
 
