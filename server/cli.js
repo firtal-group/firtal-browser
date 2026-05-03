@@ -27,6 +27,7 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const { Command } = require('commander');
 const { StatefulBackend } = require('./src/statefulBackend');
+const { personaCheckTool } = require('./src/persona-middleware');
 const { spawn } = require('child_process');
 const { PassThrough } = require('stream');
 const { getLogger } = require('./src/fileLogger');
@@ -185,12 +186,14 @@ async function main(options) {
 
   // Register handlers
   server.setRequestHandler(ListToolsRequestSchema, async () => {
+    await personaCheckTool('read', 'firtal-browser:mcp:list_tools');
     const tools = await backend.listTools();
     return { tools };
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    await personaCheckTool('use', `firtal-browser:mcp:${name}`);
     return await backend.callTool(name, args);
   });
 
