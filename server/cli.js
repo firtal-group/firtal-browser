@@ -400,4 +400,219 @@ program
   .option('--profile <name>', 'Profile name (default: firtal-agent)')
   .action(launchFirtalBrowser);
 
+// Auto-launch — idempotent silent start (used by agents).
+program
+  .command('auto-launch')
+  .description('Idempotent silent start of agent Chrome — skips if already running')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .option('--remote-debugging-port <port>', 'Enable Chrome DevTools Protocol on this port', parseInt)
+  .option('--start-url <url>', 'Open this URL on launch')
+  .option('--output <fmt>', 'Output format: text|json', 'text')
+  .action((options) => {
+    const { ensureRunning } = require('./src/agentRuntime');
+    const profile = options.profile || 'firtal-agent';
+    try {
+      const result = ensureRunning(profile, {
+        remoteDebuggingPort: options.remoteDebuggingPort,
+        startUrl: options.startUrl
+      });
+      if (options.output === 'json') {
+        console.log(JSON.stringify({ profile, ...result }, null, 2));
+      } else {
+        console.log(`${result.started ? 'Started' : 'Already running'}: agent Chrome (profile=${profile}, pid=${result.pid})`);
+      }
+    } catch (e) {
+      if (options.output === 'json') {
+        console.log(JSON.stringify({ profile, error: e.message }, null, 2));
+      } else {
+        console.error(`auto-launch failed: ${e.message}`);
+      }
+      process.exit(1);
+    }
+  });
+
+// Health check
+program
+  .command('health')
+  .description('Health check — verifies Chrome, profile, extension, watchdog, tunnel')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .option('--port <number>', 'MCP port to probe (default: 5555)', parseInt)
+  .option('--output <fmt>', 'Output format: text|json', 'text')
+  .action((options) => {
+    const { checkHealth, formatHealth } = require('./src/health');
+    const profile = options.profile || 'firtal-agent';
+    const result = checkHealth(profile, { port: options.port });
+    if (options.output === 'json') {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(formatHealth(result));
+    }
+    process.exit(result.healthy ? 0 : 1);
+  });
+
+// Watchdog
+program
+  .command('watchdog')
+  .description('Keep agent Chrome alive — auto-respawns on crash. Use --daemon to detach.')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .option('--daemon', 'Detach into the background and return immediately')
+  .option('--stop', 'Stop a running watchdog daemon')
+  .option('--status', 'Show watchdog status')
+  .option('--child', 'Internal flag: this process is the daemon child')
+  .option('--output <fmt>', 'Output format: text|json', 'text')
+  .action(async (options) => {
+    const { spawnDaemon, stopWatchdog, watchdogStatus, runWatchdogLoop } = require('./src/watchdog');
+    const profile = options.profile || 'firtal-agent';
+
+    if (options.stop) {
+      const result = stopWatchdog(profile);
+      if (options.output === 'json') console.log(JSON.stringify({ profile, ...result }, null, 2));
+      else console.log(result.stopped ? `Stopped watchdog for ${profile}` : `No watchdog running for ${profile}`);
+      return;
+    }
+
+    if (options.status) {
+      const result = watchdogStatus(profile);
+      if (options.output === 'json') console.log(JSON.stringify({ profile, ...result }, null, 2));
+      else console.log(result.running ? `Watchdog running (pid=${result.pid}, since=${result.started_at})` : 'Watchdog not running');
+      return;
+    }
+
+    if (options.child) {
+      await runWatchdogLoop(profile);
+      return;
+    }
+
+    if (options.daemon) {
+      const pid = spawnDaemon(profile);
+      if (options.output === 'json') console.log(JSON.stringify({ profile, pid, started: true }, null, 2));
+      else console.log(`Watchdog started (pid=${pid}) for profile=${profile}`);
+      return;
+    }
+
+    // Foreground
+    console.log(`Watchdog running in foreground for profile=${profile} (Ctrl+C to stop)`);
+    await runWatchdogLoop(profile);
+  });
+
+// Tunnel
+const tunnelCmd = program
+  .command('tunnel')
+  .description('Cloudflare tunnel — expose agent Chrome remotely for human-in-the-loop login');
+
+tunnelCmd
+  .command('start')
+  .description("Start a Cloudflare tunnel against agent Chrome's remote-debugging port")
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .option('--port <port>', 'Local port to tunnel (default: agent Chrome remote-debugging port from state)', parseInt)
+  .option('--idle-minutes <n>', 'Auto-stop after this many idle minutes (default: 30)', parseInt)
+  .option('--output <fmt>', 'Output format: text|json', 'text')
+  .action(async (options) => {
+    const { startTunnel } = require('./src/tunnel');
+    const { readState, ensureRunning, findRunningChrome } = require('./src/agentRuntime');
+    const profile = options.profile || 'firtal-agent';
+
+    let port = options.port;
+    if (!port) {
+      const state = readState(profile);
+      port = state.remote_debugging_port;
+      if (!port) {
+        port = 9222;
+        console.error(`No remote-debugging-port in state — restarting Chrome with --remote-debugging-port=${port}`);
+        try {
+          const running = findRunningChrome(profile);
+          if (running) {
+            try { process.kill(running.pid); } catch {}
+            require('child_process').execSync('sleep 1');
+          }
+          ensureRunning(profile, { remoteDebuggingPort: port });
+          require('child_process').execSync('sleep 2');
+        } catch (e) {
+          console.error(`Failed to restart Chrome with remote debugging: ${e.message}`);
+          process.exit(1);
+        }
+      }
+    }
+
+    try {
+      const result = await startTunnel(profile, { port, idleMinutes: options.idleMinutes });
+      if (options.output === 'json') {
+        console.log(JSON.stringify({ profile, port, ...result }, null, 2));
+      } else {
+        console.log(`Tunnel ${result.reused ? 'already running' : 'started'}:`);
+        console.log(`  URL:   ${result.url}`);
+        console.log(`  Authed URL (use this from a browser):`);
+        console.log(`    ${result.authedUrl || result.url + '?token=' + result.token}`);
+        console.log(`  Token: ${result.token}`);
+        console.log(`  Port:  ${port} (Chrome) → ${result.proxyPid ? 'auth-proxy → ' : ''}cloudflared`);
+        console.log(`  PID:   ${result.pid}`);
+        console.log('');
+        console.log('Open the authed URL on your phone or other device. Without the token,');
+        console.log('all requests get 401. The token is fresh per tunnel session.');
+        console.log('');
+        console.log('Stop with: node cli.js tunnel stop --profile ' + profile);
+      }
+    } catch (e) {
+      if (options.output === 'json') console.log(JSON.stringify({ profile, error: e.message }, null, 2));
+      else console.error(`tunnel start failed: ${e.message}`);
+      process.exit(1);
+    }
+  });
+
+// Internal: hidden subcommand the auth proxy spawns into. Not part of the
+// public CLI surface — users don't call this directly.
+program
+  .command('auth-proxy', { hidden: true })
+  .description('Internal: run the token-auth proxy in front of Chrome CDP')
+  .option('--profile <name>', 'Profile name')
+  .option('--listen-port <port>', 'Port to bind on 127.0.0.1', parseInt)
+  .option('--upstream-port <port>', 'Chrome CDP upstream port', parseInt)
+  .option('--token <hex>', 'Required bearer token')
+  .option('--child', 'Marker that this process is the spawned child')
+  .action((options) => {
+    const { runAuthProxy } = require('./src/authProxy');
+    runAuthProxy({
+      profile: options.profile,
+      listenPort: options.listenPort,
+      upstreamPort: options.upstreamPort,
+      token: options.token
+    });
+    // Keep the event loop alive — the HTTP server already does this, but
+    // be explicit so a stray top-level `await` doesn't cause early exit.
+  });
+
+tunnelCmd
+  .command('stop')
+  .description('Stop the Cloudflare tunnel')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .option('--output <fmt>', 'Output format: text|json', 'text')
+  .action((options) => {
+    const { stopTunnel } = require('./src/tunnel');
+    const profile = options.profile || 'firtal-agent';
+    const result = stopTunnel(profile);
+    if (options.output === 'json') console.log(JSON.stringify({ profile, ...result }, null, 2));
+    else console.log(result.stopped ? `Tunnel stopped for ${profile}` : `No tunnel running for ${profile}`);
+  });
+
+tunnelCmd
+  .command('status')
+  .description('Show Cloudflare tunnel status')
+  .option('--profile <name>', 'Profile name (default: firtal-agent)')
+  .option('--output <fmt>', 'Output format: text|json', 'text')
+  .action((options) => {
+    const { tunnelStatus } = require('./src/tunnel');
+    const profile = options.profile || 'firtal-agent';
+    const result = tunnelStatus(profile);
+    if (options.output === 'json') console.log(JSON.stringify({ profile, ...result }, null, 2));
+    else if (!result.running) console.log('Tunnel not running');
+    else {
+      console.log(`Tunnel running:`);
+      console.log(`  URL:   ${result.url}`);
+      console.log(`  Token: ${result.token}`);
+      console.log(`  Port:  ${result.port}`);
+      console.log(`  PID:   ${result.pid}`);
+      console.log(`  Since: ${result.started_at}`);
+    }
+  });
+
 program.parse(process.argv);

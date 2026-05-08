@@ -41,6 +41,20 @@ Use it when merging upstream updates to identify and resolve conflicts.
   - `scripts/setup-profile.sh` — agent Chrome profile setup
 - **Merge strategy:** Additive only — these files don't exist upstream, zero conflict risk.
 
+### 4. Agent runtime stability — auto-launch, health, watchdog, tunnel
+
+- **Files added:**
+  - `server/src/agentRuntime.js` — shared lifecycle helpers (process detection by `--user-data-dir`, profile paths, state file, idempotent spawn)
+  - `server/src/health.js` — structured health check (CLI + JSON output)
+  - `server/src/watchdog.js` — background daemon that respawns Chrome on crash + auto-stops idle tunnels
+  - `server/src/authProxy.js` — token-auth HTTP/WS reverse proxy fronting Chrome's DevTools Protocol
+  - `server/src/tunnel.js` — Cloudflare quick-tunnel orchestration: auto-installs `cloudflared` on macOS via brew, rewrites `Host` header for Chrome's anti-DNS-rebinding check, fronts CDP with the auth proxy
+- **Files modified:**
+  - `server/cli.js` — five new subcommands (`auto-launch`, `health`, `watchdog`, `tunnel start/stop/status`, internal `auth-proxy`)
+- **What:** Lets agents drive the browser-runtime end-to-end without human interaction. `auto-launch` is idempotent and safe to call before any browser tool. `watchdog` keeps Chrome alive across crashes. `tunnel start` exposes the profile remotely with a fresh per-session token so a human can finish a login from a phone or another mac.
+- **Merge strategy:** Additive only for the `src/*.js` files — zero upstream conflict. `cli.js` modifications append new subcommands at the end before `program.parse()`; on upstream merge re-apply the subcommand block (self-contained).
+- **State:** `~/.firtal-browser/state/<profile>.json` (pids, ports, timestamps); `~/.firtal-browser/logs/<profile>.<kind>.log` (Chrome stdout, watchdog tick log, tunnel log, auth-proxy access log, tunnel audit trail).
+
 ## Conflict Risk Assessment
 
 | File | Upstream change frequency | Firtal changes | Risk |
@@ -49,5 +63,6 @@ Use it when merging upstream updates to identify and resolve conflicts.
 | `server/package.json` | Every release | Name, description, bin | LOW |
 | `extensions/chrome/manifest.json` | Moderate (permissions, version) | Title, host_permissions | LOW |
 | `_locales/*/messages.json` | Rare | extName only | MINIMAL |
-| `server/src/*` | Frequent | None yet | NONE |
+| `server/cli.js` | Frequent | New subcommands at end of file | LOW — additions are appended; resolve by re-applying the block |
+| `server/src/agentRuntime.js`, `health.js`, `watchdog.js`, `authProxy.js`, `tunnel.js` | N/A (Firtal-only) | New files | NONE |
 | `extensions/shared/*` | Frequent | None yet | NONE |
