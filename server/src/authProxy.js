@@ -32,6 +32,153 @@ const {
   isPidAlive
 } = require('./agentRuntime');
 
+function getCookie(req, name) {
+  const header = req.headers.cookie || '';
+  for (const part of header.split(';')) {
+    const [rawKey, ...rawValue] = part.trim().split('=');
+    if (rawKey === name) return decodeURIComponent(rawValue.join('='));
+  }
+  return null;
+}
+
+function getRequestToken(req) {
+  const auth = req.headers['authorization'];
+  if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+  const u = url.parse(req.url, true);
+  if (u.query && typeof u.query.token === 'string') return u.query.token;
+  return getCookie(req, 'firtal_browser_token');
+}
+
+function externalEndpoint(req) {
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const proto = req.headers['x-forwarded-proto'] || 'http';
+  const firstProto = String(proto).split(',')[0].trim();
+  const firstHost = String(host || '').split(',')[0].trim();
+  return {
+    host: firstHost,
+    httpScheme: firstProto === 'https' ? 'https' : 'http',
+    wsScheme: firstProto === 'https' ? 'wss' : 'ws'
+  };
+}
+
+function buildRemoteCdpUrl(req, originalUrl, token) {
+  if (!originalUrl || typeof originalUrl !== 'string') return originalUrl;
+
+  const endpoint = externalEndpoint(req);
+  const parsed = originalUrl.startsWith('ws://') || originalUrl.startsWith('wss://')
+    ? new URL(originalUrl)
+    : new URL(`ws://${originalUrl}`);
+  parsed.protocol = `${endpoint.wsScheme}:`;
+  parsed.host = endpoint.host;
+  if (!endpoint.host.includes(':')) parsed.port = '';
+  parsed.searchParams.set('token', token);
+  return parsed.toString();
+}
+
+function buildRemoteDevtoolsUrl(req, target, token) {
+  const endpoint = externalEndpoint(req);
+  const id = target.id;
+  const wsTarget = `${endpoint.host}/devtools/page/${id}?token=${encodeURIComponent(token)}`;
+  const params = new URLSearchParams({ ws: wsTarget });
+  return `/devtools/inspector.html?${params.toString()}`;
+}
+
+function rewriteCdpJson(req, payload, token) {
+  if (Array.isArray(payload)) {
+    return payload.map((target) => {
+      if (!target || typeof target !== 'object') return target;
+      const next = { ...target };
+      if (next.webSocketDebuggerUrl) {
+        next.webSocketDebuggerUrl = buildRemoteCdpUrl(req, next.webSocketDebuggerUrl, token);
+      }
+      if (next.type === 'page' && next.id) {
+        next.devtoolsFrontendUrl = buildRemoteDevtoolsUrl(req, next, token);
+      }
+      return next;
+    });
+  }
+
+  if (payload && typeof payload === 'object') {
+    const next = { ...payload };
+    if (next.webSocketDebuggerUrl) {
+      next.webSocketDebuggerUrl = buildRemoteCdpUrl(req, next.webSocketDebuggerUrl, token);
+    }
+    return next;
+  }
+
+  return payload;
+}
+
+function fetchJsonFromUpstream(upstreamPort, pathname) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(
+      {
+        hostname: '127.0.0.1',
+        port: upstreamPort,
+        path: pathname,
+        headers: { host: `localhost:${upstreamPort}` }
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(5000, () => {
+      req.destroy(new Error('Timed out reading Chrome CDP targets'));
+    });
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function renderRemoteIndex({ targets, token }) {
+  const pageTargets = targets.filter((target) => target && target.type === 'page' && target.id);
+  const rows = pageTargets.map((target) => {
+    const href = `${target.devtoolsFrontendUrl}&token=${encodeURIComponent(token)}`;
+    return `<li><a href="${escapeHtml(href)}">${escapeHtml(target.title || target.url || target.id)}</a><span>${escapeHtml(target.url || '')}</span></li>`;
+  }).join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Firtal Browser Remote</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f7f4; color: #171717; }
+    main { max-width: 880px; margin: 0 auto; padding: 32px 20px; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    p { margin: 0 0 20px; color: #555; }
+    ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+    li { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 14px; }
+    a { display: block; color: #0f766e; font-weight: 700; text-decoration: none; margin-bottom: 6px; }
+    span { color: #666; font-size: 13px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Firtal Browser Remote</h1>
+    <p>Open a tab below to interact with the dedicated agent Chrome profile.</p>
+    <ul>${rows || '<li>No open page targets found. Start Chrome with a page URL and refresh.</li>'}</ul>
+  </main>
+</body>
+</html>`;
+}
+
 /**
  * Run the proxy in-process. Used by the daemon child mode of cli.js.
  */
@@ -50,16 +197,10 @@ function runAuthProxy({ listenPort, upstreamPort, token, profile }) {
   };
 
   function isAuthed(req) {
-    // Token in Authorization header
-    const auth = req.headers['authorization'];
-    if (auth && auth.startsWith('Bearer ') && auth.slice(7) === token) return true;
-    // Token in ?token=...
-    const u = url.parse(req.url, true);
-    if (u.query && u.query.token === token) return true;
-    return false;
+    return getRequestToken(req) === token;
   }
 
-  const server = http.createServer((clientReq, clientRes) => {
+  const server = http.createServer(async (clientReq, clientRes) => {
     if (!isAuthed(clientReq)) {
       log(`401 ${clientReq.method} ${clientReq.url} from ${clientReq.socket.remoteAddress}`);
       clientRes.writeHead(401, { 'Content-Type': 'text/plain' });
@@ -74,6 +215,22 @@ function runAuthProxy({ listenPort, upstreamPort, token, profile }) {
 
     const upstreamPath = url.format({ pathname: u.pathname, query: u.query });
 
+    if ((u.pathname === '/' || u.pathname === '/remote') && clientReq.method === 'GET') {
+      try {
+        const targets = rewriteCdpJson(clientReq, await fetchJsonFromUpstream(upstreamPort, '/json/list'), token);
+        clientRes.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Set-Cookie': `firtal_browser_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`
+        });
+        clientRes.end(renderRemoteIndex({ targets, token }));
+      } catch (err) {
+        log(`remote index error: ${err.message}`);
+        clientRes.writeHead(502, { 'Content-Type': 'text/plain' });
+        clientRes.end('Could not read Chrome targets');
+      }
+      return;
+    }
+
     const proxyReq = http.request(
       {
         hostname: '127.0.0.1',
@@ -83,8 +240,41 @@ function runAuthProxy({ listenPort, upstreamPort, token, profile }) {
         headers: { ...clientReq.headers, host: `localhost:${upstreamPort}` }
       },
       (proxyRes) => {
-        clientRes.writeHead(proxyRes.statusCode, proxyRes.headers);
-        proxyRes.pipe(clientRes);
+        const contentType = proxyRes.headers['content-type'] || '';
+        const shouldRewriteJson =
+          clientReq.method === 'GET' &&
+          ['/json', '/json/list', '/json/version'].includes(u.pathname) &&
+          String(contentType).includes('application/json');
+
+        const headers = {
+          ...proxyRes.headers,
+          'set-cookie': `firtal_browser_token=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`
+        };
+
+        if (!shouldRewriteJson) {
+          clientRes.writeHead(proxyRes.statusCode, headers);
+          proxyRes.pipe(clientRes);
+          return;
+        }
+
+        const chunks = [];
+        proxyRes.on('data', (chunk) => chunks.push(chunk));
+        proxyRes.on('end', () => {
+          try {
+            const json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            const body = JSON.stringify(rewriteCdpJson(clientReq, json, token));
+            clientRes.writeHead(proxyRes.statusCode, {
+              ...headers,
+              'content-length': Buffer.byteLength(body),
+              'content-type': 'application/json; charset=utf-8'
+            });
+            clientRes.end(body);
+          } catch (err) {
+            log(`json rewrite error: ${err.message}`);
+            clientRes.writeHead(502, { 'Content-Type': 'text/plain' });
+            clientRes.end('Bad Gateway');
+          }
+        });
       }
     );
 
@@ -184,4 +374,12 @@ function stopAuthProxy(profile) {
   return { stopped: true };
 }
 
-module.exports = { runAuthProxy, spawnAuthProxy, stopAuthProxy };
+module.exports = {
+  runAuthProxy,
+  spawnAuthProxy,
+  stopAuthProxy,
+  rewriteCdpJson,
+  renderRemoteIndex,
+  buildRemoteCdpUrl,
+  buildRemoteDevtoolsUrl
+};

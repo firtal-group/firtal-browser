@@ -19,9 +19,37 @@ const {
 const { isCloudflaredInstalled, tunnelStatus } = require('./tunnel');
 const { watchdogStatus } = require('./watchdog');
 
+function checkCdpPort(port, timeoutMs = 1000) {
+  if (!port) {
+    return { ok: false, detail: 'No remote-debugging-port recorded. Start with `auto-launch --remote-debugging-port <port>`.' };
+  }
+
+  try {
+    require('child_process').execFileSync(
+      process.execPath,
+      [
+        '-e',
+        `
+const http = require('http');
+const req = http.get({ hostname: '127.0.0.1', port: ${JSON.stringify(port)}, path: '/json/version', timeout: ${JSON.stringify(timeoutMs)} }, (res) => {
+  process.exit(res.statusCode >= 200 && res.statusCode < 300 ? 0 : 2);
+});
+req.on('timeout', () => req.destroy(new Error('timeout')));
+req.on('error', () => process.exit(1));
+`
+      ],
+      { stdio: 'pipe', timeout: timeoutMs + 500 }
+    );
+    return { ok: true, port, detail: null };
+  } catch {
+    return { ok: false, port, detail: `Chrome CDP did not answer on 127.0.0.1:${port}/json/version` };
+  }
+}
+
 function checkHealth(profile, options = {}) {
   const port = options.port || 5555;
   const checks = {};
+  const state = readState(profile);
 
   // Chrome binary
   const chromeBin = detectChromeBin();
@@ -56,6 +84,14 @@ function checkHealth(profile, options = {}) {
     ok: Boolean(running),
     pid: running ? running.pid : null,
     detail: running ? null : 'Run `node cli.js auto-launch --profile ' + profile + '`'
+  };
+
+  const cdpPort = options.remoteDebuggingPort || state.remote_debugging_port || null;
+  const cdp = running ? checkCdpPort(cdpPort) : { ok: false, port: cdpPort, detail: 'Chrome is not running.' };
+  checks.cdp_liveness = {
+    ok: cdp.ok,
+    port: cdp.port || cdpPort,
+    detail: cdp.detail
   };
 
   // MCP port (only relevant when an MCP client is connected; not a failure
@@ -93,14 +129,12 @@ function checkHealth(profile, options = {}) {
     detail: cfd ? null : 'Install on demand when you first run `tunnel start` (brew install cloudflared on macOS)'
   };
 
-  // State summary
-  const state = readState(profile);
-
   const allRequiredOk =
     checks.chrome_binary.ok &&
     checks.extension_built.ok &&
     checks.profile.ok &&
-    checks.chrome_running.ok;
+    checks.chrome_running.ok &&
+    checks.cdp_liveness.ok;
 
   return {
     profile,
@@ -128,4 +162,4 @@ function formatHealth(result) {
   return lines.join('\n');
 }
 
-module.exports = { checkHealth, formatHealth };
+module.exports = { checkHealth, formatHealth, checkCdpPort };

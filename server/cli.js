@@ -434,7 +434,7 @@ program
 // Health check
 program
   .command('health')
-  .description('Health check — verifies Chrome, profile, extension, watchdog, tunnel')
+  .description('Health check — verifies Chrome, CDP liveness, profile, extension, watchdog, tunnel')
   .option('--profile <name>', 'Profile name (default: firtal-agent)')
   .option('--port <number>', 'MCP port to probe (default: 5555)', parseInt)
   .option('--output <fmt>', 'Output format: text|json', 'text')
