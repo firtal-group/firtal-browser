@@ -77,9 +77,25 @@ function buildRemoteCdpUrl(req, originalUrl, token) {
 
 function buildRemoteDevtoolsUrl(req, target, token) {
   const endpoint = externalEndpoint(req);
-  const id = target.id;
-  const wsTarget = `${endpoint.host}/devtools/page/${id}?token=${encodeURIComponent(token)}`;
-  const params = new URLSearchParams({ ws: wsTarget });
+  let wsPath = target.id ? `/devtools/page/${target.id}` : '';
+
+  if (target.webSocketDebuggerUrl) {
+    try {
+      wsPath = new URL(target.webSocketDebuggerUrl).pathname;
+    } catch {}
+  } else if (target.devtoolsFrontendUrl) {
+    try {
+      const frontend = new URL(target.devtoolsFrontendUrl, 'http://localhost');
+      const wsParam = frontend.searchParams.get('ws');
+      if (wsParam) wsPath = new URL(`ws://${wsParam}`).pathname;
+    } catch {}
+  }
+
+  const wsTarget = `${endpoint.host}${wsPath}?token=${encodeURIComponent(token)}`;
+  const params = new URLSearchParams({
+    ws: wsTarget,
+    token
+  });
   return `/devtools/inspector.html?${params.toString()}`;
 }
 
@@ -91,7 +107,7 @@ function rewriteCdpJson(req, payload, token) {
       if (next.webSocketDebuggerUrl) {
         next.webSocketDebuggerUrl = buildRemoteCdpUrl(req, next.webSocketDebuggerUrl, token);
       }
-      if (next.type === 'page' && next.id) {
+      if ((next.webSocketDebuggerUrl || next.devtoolsFrontendUrl) && next.id) {
         next.devtoolsFrontendUrl = buildRemoteDevtoolsUrl(req, next, token);
       }
       return next;
@@ -148,7 +164,7 @@ function escapeHtml(value) {
 function renderRemoteIndex({ targets, token }) {
   const pageTargets = targets.filter((target) => target && target.type === 'page' && target.id);
   const rows = pageTargets.map((target) => {
-    const href = `${target.devtoolsFrontendUrl}&token=${encodeURIComponent(token)}`;
+    const href = withQueryToken(target.devtoolsFrontendUrl, token);
     return `<li><a href="${escapeHtml(href)}">${escapeHtml(target.title || target.url || target.id)}</a><span>${escapeHtml(target.url || '')}</span></li>`;
   }).join('');
 
@@ -177,6 +193,22 @@ function renderRemoteIndex({ targets, token }) {
   </main>
 </body>
 </html>`;
+}
+
+function withQueryToken(link, token) {
+  if (!link || typeof link !== 'string') return link;
+  const separator = link.includes('?') ? '&' : '?';
+  return /[?&]token=/.test(link) ? link : `${link}${separator}token=${encodeURIComponent(token)}`;
+}
+
+function upstreamUpgradeHeaders(req, upstreamPort) {
+  return {
+    ...req.headers,
+    host: `localhost:${upstreamPort}`,
+    origin: `http://localhost:${upstreamPort}`,
+    cookie: undefined,
+    authorization: undefined
+  };
 }
 
 /**
@@ -303,11 +335,11 @@ function runAuthProxy({ listenPort, upstreamPort, token, profile }) {
     const upstreamPath = url.format({ pathname: u.pathname, query: u.query });
 
     const upstream = net.connect(upstreamPort, '127.0.0.1', () => {
+      const headers = upstreamUpgradeHeaders(req, upstreamPort);
       const headerLines = [
         `GET ${upstreamPath} HTTP/1.1`,
-        `Host: localhost:${upstreamPort}`,
-        ...Object.entries(req.headers)
-          .filter(([k]) => k.toLowerCase() !== 'host')
+        ...Object.entries(headers)
+          .filter(([, v]) => v !== undefined)
           .map(([k, v]) => `${k}: ${v}`)
       ];
       upstream.write(headerLines.join('\r\n') + '\r\n\r\n');
@@ -381,5 +413,6 @@ module.exports = {
   rewriteCdpJson,
   renderRemoteIndex,
   buildRemoteCdpUrl,
-  buildRemoteDevtoolsUrl
+  buildRemoteDevtoolsUrl,
+  upstreamUpgradeHeaders
 };
