@@ -92,7 +92,7 @@ describe('auth proxy remote CDP URLs', () => {
     expect(html).toContain('/devtools/inspector.html');
   });
 
-  test('websocket upgrade headers look local to Chrome and drop proxy auth headers', () => {
+  test('websocket upgrade headers look local to Chrome and drop browser/auth headers', () => {
     const headers = upstreamUpgradeHeaders({
       headers: {
         host: 'remote.example.test',
@@ -106,7 +106,7 @@ describe('auth proxy remote CDP URLs', () => {
     }, 9332);
 
     expect(headers.host).toBe('localhost:9332');
-    expect(headers.origin).toBe('http://localhost:9332');
+    expect(headers.origin).toBeUndefined();
     expect(headers.cookie).toBeUndefined();
     expect(headers.authorization).toBeUndefined();
     expect(headers.upgrade).toBe('websocket');

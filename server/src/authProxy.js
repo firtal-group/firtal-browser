@@ -205,7 +205,7 @@ function upstreamUpgradeHeaders(req, upstreamPort) {
   return {
     ...req.headers,
     host: `localhost:${upstreamPort}`,
-    origin: `http://localhost:${upstreamPort}`,
+    origin: undefined,
     cookie: undefined,
     authorization: undefined
   };

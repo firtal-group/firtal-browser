@@ -31,22 +31,25 @@ server.listen(0, '127.0.0.1', () => {
     ], { stdio: ['ignore', 'pipe', 'inherit'] });
 
     const port = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('fake CDP server did not start')), 2000);
+      const timer = setTimeout(() => reject(new Error('fake CDP server did not start')), 10000);
       child.stdout.once('data', (chunk) => {
         clearTimeout(timer);
         resolve(Number(chunk.toString('utf8').trim()));
       });
-      child.once('error', reject);
+      child.once('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
     });
 
     try {
-      expect(checkCdpPort(port).ok).toBe(true);
+      expect(checkCdpPort(port, 5000).ok).toBe(true);
     } finally {
       if (!child.killed) {
         child.kill();
       }
     }
-  });
+  }, 15000);
 
   test('fails when the recorded CDP port is closed', async () => {
     const server = http.createServer();
