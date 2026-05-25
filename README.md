@@ -95,9 +95,52 @@ claude mcp add firtal-browser -- node /path/to/firtal-browser/server/cli.js
 |---------|-------------|
 | `node cli.js setup` | First-time setup: build, create profile, launch Chrome |
 | `node cli.js launch` | Relaunch agent Chrome with saved sessions |
+| `node cli.js auto-launch` | Idempotent silent start — skips if already running. Safe for agents to call before any browser action. |
+| `node cli.js health` | Check Chrome, CDP liveness, profile, extension, watchdog, tunnel — exits non-zero if anything required is missing |
+| `node cli.js watchdog --daemon` | Background process that respawns Chrome if it dies |
+| `node cli.js watchdog --status` / `--stop` | Inspect or stop the watchdog |
+| `node cli.js tunnel start` | Expose this profile via a Cloudflare tunnel with token-auth so you can log in from another device |
+| `node cli.js tunnel stop` / `status` | Stop or inspect the tunnel |
 | `node cli.js serve` | Start MCP server (default, used by AI clients) |
 | `node cli.js serve --debug` | Start MCP server with verbose logging |
 | `node cli.js serve --port 8080` | Use custom WebSocket port (default: 5555) |
+
+All of the above accept `--profile <name>` (default: `firtal-agent`) so multiple
+agents can run in parallel against separate profiles, and `--output json` for
+agent consumption.
+
+### Running unattended (agent-driven)
+
+Agents can drive the lifecycle entirely on their own — no human action needed:
+
+```bash
+# Start watchdog so a Chrome crash doesn't break the agent task
+node cli.js watchdog --profile <name> --daemon
+
+# Spin up Chrome on demand with CDP for health and remote login
+node cli.js auto-launch --profile <name> --remote-debugging-port 9222 --output json
+
+# Verify before the agent starts work
+node cli.js health --profile <name> --output json
+```
+
+If a session expires while the agent is mid-task, it can ask Sara to log in
+remotely:
+
+```bash
+# Spin up a Cloudflare tunnel with token-auth for human-in-the-loop login
+node cli.js tunnel start --profile <name> --output json
+# → returns { url, token, authedUrl }
+# Sara opens authedUrl from her phone, logs into the service, agent continues
+node cli.js tunnel stop --profile <name>
+```
+
+The tunnel opens a small remote browser page at `authedUrl`. It lists the open
+agent Chrome tabs and links into DevTools with remote-compatible WebSocket URLs,
+so the link works from another browser or device instead of pointing back to
+`localhost`. Requests without `?token=<token>`, `Authorization: Bearer <token>`,
+or the session cookie set by `authedUrl` get 401. The token is fresh per tunnel
+session and a stop+start always rotates it.
 
 ## Available Tools
 
